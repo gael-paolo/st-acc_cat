@@ -1,0 +1,8 @@
+*
+!.gitignore
+!app.py
+!requirements.txt
+!plantillas/
+!plantillas/catalogo.html.j2
+!catalogo/
+!catalogo/*.py
