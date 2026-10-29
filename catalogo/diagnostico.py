@@ -32,6 +32,14 @@ class Chequeo:
         return self.estado in (FALTA, INVALIDO)
 
 
+_MARCADOR = re.compile(r"PEGA_AQUI|PON_AQUI|ID_O_URL", re.I)
+
+
+def es_marcador(valor: Any) -> bool:
+    """¿Sigue siendo el texto de ejemplo de la plantilla (sin reemplazar)?"""
+    return bool(_MARCADOR.search(str(valor or "")))
+
+
 def extraer_id(valor: Any) -> str:
     """Acepta el ID o la URL completa de Drive/Sheets y devuelve el ID."""
     s = str(valor or "").strip()
@@ -69,6 +77,9 @@ def _chequeo_cuenta(get) -> Chequeo:
     faltan = [k for k in CLAVES_CUENTA if not str(info.get(k, "")).strip()]
     if faltan:
         return Chequeo(nombre, FALTA, "Faltan campos: " + ", ".join(faltan))
+    pendientes = [k for k, v in info.items() if isinstance(v, str) and es_marcador(v)]
+    if pendientes:
+        return Chequeo(nombre, INVALIDO, "Quedan textos de ejemplo (PEGA_AQUI) sin reemplazar en: " + ", ".join(sorted(pendientes)) + ". Pega el contenido completo del archivo JSON.")
     if info["type"] != "service_account":
         return Chequeo(nombre, INVALIDO, f"«type» debe ser service_account (es «{info['type']}»).")
     clave = str(info["private_key"])
@@ -89,7 +100,9 @@ def revisar_secretos(get: Callable[[str], Any]) -> list[Chequeo]:
     out: list[Chequeo] = []
 
     clave = get("APP_PASSWORD")
-    if not clave:
+    if clave and es_marcador(clave):
+        out.append(Chequeo("APP_PASSWORD", INVALIDO, "Sigue con el texto de ejemplo: escribe tu propia contraseña."))
+    elif not clave:
         out.append(Chequeo("APP_PASSWORD", FALTA, "Obligatoria: sin ella la app no se muestra (protege la generación de archivos)."))
     elif len(str(clave)) < 8:
         out.append(Chequeo("APP_PASSWORD", RECOMENDADO, "Existe, pero es corta (menos de 8 caracteres)."))
@@ -103,6 +116,9 @@ def revisar_secretos(get: Callable[[str], Any]) -> list[Chequeo]:
         crudo = get(k)
         if not crudo:
             out.append(Chequeo(k, FALTA, f"{descripcion}: falta definirlo."))
+            continue
+        if es_marcador(crudo):
+            out.append(Chequeo(k, INVALIDO, f"{descripcion}: sigue con el texto de ejemplo; pega el ID o la URL real."))
             continue
         valor = extraer_id(crudo)
         if not re.fullmatch(r"[A-Za-z0-9_-]{15,}", valor):
@@ -157,39 +173,59 @@ def probar_drive(
 
     out: list[Chequeo] = []
 
+    def carpeta(clave: str, etiqueta: str):
+        """Comprueba que el ID sea una carpeta accesible. Devuelve (carpeta | None, chequeo de error | None)."""
+        try:
+            elemento = drive.resolver_archivo(servicio, ids[clave])
+        except Exception as e:
+            return None, Chequeo(etiqueta, INVALIDO, _explicar(e, email, etiqueta.lower().replace("carpeta de", "la carpeta de")))
+        if elemento.mime != drive.MIME_FOLDER:
+            return None, Chequeo(
+                etiqueta, INVALIDO,
+                f"El ID apunta a «{elemento.nombre}», que no es una carpeta. Abre la carpeta correcta en Drive y copia su URL.",
+            )
+        return elemento, None
+
     nombre = "Carpeta de reportes"
-    try:
-        archivos = drive.listar_carpeta(servicio, ids["DRIVE_REPORTES_ID"])
-        ultimo = drive.ultimo_reporte(archivos)
-        out.append(Chequeo(nombre, OK, f"{len(archivos)} archivos; el más reciente que usaría: «{ultimo.nombre}»."))
-    except drive.ErrorDrive as e:
-        out.append(Chequeo(nombre, INVALIDO, str(e) if "No hay reportes" in str(e) else _explicar(e, email, "la carpeta de reportes")))
-    except Exception as e:
-        out.append(Chequeo(nombre, INVALIDO, _explicar(e, email, "la carpeta de reportes")))
+    elemento, fallo = carpeta("DRIVE_REPORTES_ID", nombre)
+    if fallo:
+        out.append(fallo)
+    else:
+        try:
+            archivos = drive.listar_carpeta(servicio, ids["DRIVE_REPORTES_ID"])
+            ultimo = drive.ultimo_reporte(archivos)
+            out.append(Chequeo(nombre, OK, f"«{elemento.nombre}»: {len(archivos)} archivos; el más reciente que usaría: «{ultimo.nombre}»."))
+        except drive.ErrorDrive as e:
+            out.append(Chequeo(nombre, INVALIDO, str(e) if "No hay reportes" in str(e) else _explicar(e, email, "la carpeta de reportes")))
+        except Exception as e:
+            out.append(Chequeo(nombre, INVALIDO, _explicar(e, email, "la carpeta de reportes")))
 
     nombre = "Maestro"
     try:
-        meta = servicio.files().get(
-            fileId=ids["DRIVE_MAESTRO_ID"], fields="id,name,mimeType,modifiedTime", supportsAllDrives=True
-        ).execute()
-        archivo = drive.ArchivoDrive(meta["id"], meta["name"], meta.get("mimeType", ""), meta.get("modifiedTime", ""))
+        archivo = drive.resolver_archivo(servicio, ids["DRIVE_MAESTRO_ID"])
         m = leer_maestro_fn(descargar_fn(servicio, archivo))
         n = len(m.items)
         out.append(Chequeo(nombre, OK, f"«{archivo.nombre}» legible: {n} filas en la hoja Maestro."))
     except Exception as e:
         texto = str(e)
-        if "Maestro" in texto and "hoja" in texto.lower():
+        if isinstance(e, drive.ErrorDrive) and ("es una carpeta" in texto or "documento de Google de tipo" in texto or "acceso directo" in texto):
+            out.append(Chequeo(nombre, INVALIDO, texto))
+        elif "Maestro" in texto and "hoja" in texto.lower():
             out.append(Chequeo(nombre, INVALIDO, f"Se pudo abrir el archivo pero: {texto}"))
         else:
             out.append(Chequeo(nombre, INVALIDO, _explicar(e, email, "el archivo maestro")))
 
     nombre = "Carpeta de fotos"
-    try:
-        fotos = drive.FuenteDrive(servicio, ids["DRIVE_IMAGENES_ID"]).listar()
-        if fotos:
-            out.append(Chequeo(nombre, OK, f"{len(fotos)} fotos reconocidas (ejemplo: {next(iter(fotos))})."))
-        else:
-            out.append(Chequeo(nombre, INVALIDO, "La carpeta se puede leer, pero no tiene imágenes (JPG, PNG, WebP…) directamente dentro."))
-    except Exception as e:
-        out.append(Chequeo(nombre, INVALIDO, _explicar(e, email, "la carpeta de fotos")))
+    elemento, fallo = carpeta("DRIVE_IMAGENES_ID", nombre)
+    if fallo:
+        out.append(fallo)
+    else:
+        try:
+            fotos = drive.FuenteDrive(servicio, ids["DRIVE_IMAGENES_ID"]).listar()
+            if fotos:
+                out.append(Chequeo(nombre, OK, f"«{elemento.nombre}»: {len(fotos)} fotos reconocidas (ejemplo: {next(iter(fotos))})."))
+            else:
+                out.append(Chequeo(nombre, INVALIDO, "La carpeta se puede leer, pero no tiene imágenes (JPG, PNG, WebP…) directamente dentro."))
+        except Exception as e:
+            out.append(Chequeo(nombre, INVALIDO, _explicar(e, email, "la carpeta de fotos")))
     return out

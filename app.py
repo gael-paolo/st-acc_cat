@@ -73,6 +73,7 @@ def panel_configuracion() -> None:
         )
         st.caption("Aquí solo se muestran los nombres y si están bien formados; nunca los valores. Guía completa: DESPLIEGUE.md.")
         if drive_listo(chequeos):
+            st.caption("Los datos tienen buena forma. Pulsa el botón para comprobar que la app realmente puede leer tus archivos de Drive.")
             if st.button("Probar conexión con Drive"):
                 with st.spinner("Leyendo Drive…"):
                     try:
@@ -145,8 +146,7 @@ def cargar_desde_drive():
     servicio = drive.conectar(info)
     reportes = drive.listar_carpeta(servicio, ids["DRIVE_REPORTES_ID"])
     rep = drive.ultimo_reporte(reportes)
-    meta = servicio.files().get(fileId=ids["DRIVE_MAESTRO_ID"], fields="id,name,mimeType,modifiedTime", supportsAllDrives=True).execute()
-    maestro_meta = drive.ArchivoDrive(meta["id"], meta["name"], meta.get("mimeType", ""), meta.get("modifiedTime", ""))
+    maestro_meta = drive.resolver_archivo(servicio, ids["DRIVE_MAESTRO_ID"])
     return {
         "reporte": drive.descargar(servicio, rep), "nombre_reporte": rep.nombre,
         "maestro": drive.descargar(servicio, maestro_meta),

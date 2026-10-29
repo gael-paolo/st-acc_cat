@@ -19,6 +19,8 @@ from .util import stem
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 MIME_SHEET = "application/vnd.google-apps.spreadsheet"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MIME_FOLDER = "application/vnd.google-apps.folder"
+MIME_SHORTCUT = "application/vnd.google-apps.shortcut"
 CAMPOS = "nextPageToken, files(id, name, mimeType, modifiedTime, md5Checksum, size)"
 
 
@@ -72,9 +74,37 @@ def listar_carpeta(servicio, carpeta_id: str) -> list[ArchivoDrive]:
         raise ErrorDrive(f"No se pudo leer la carpeta de Drive ({e}). ¿Está compartida con la cuenta de servicio?") from e
 
 
+def resolver_archivo(servicio, file_id: str) -> ArchivoDrive:
+    """Datos del elemento de Drive; si es un acceso directo, devuelve el elemento al que apunta."""
+    try:
+        meta = servicio.files().get(
+            fileId=file_id, fields="id,name,mimeType,modifiedTime,md5Checksum,shortcutDetails", supportsAllDrives=True
+        ).execute()
+        if meta.get("mimeType") == MIME_SHORTCUT:
+            destino = (meta.get("shortcutDetails") or {}).get("targetId")
+            if not destino:
+                raise ErrorDrive(f"«{meta.get('name', file_id)}» es un acceso directo sin destino accesible. Comparte también el archivo original.")
+            meta = servicio.files().get(
+                fileId=destino, fields="id,name,mimeType,modifiedTime,md5Checksum", supportsAllDrives=True
+            ).execute()
+    except ErrorDrive:
+        raise
+    except Exception as e:
+        raise ErrorDrive(f"No se pudo leer el elemento de Drive ({e}).") from e
+    return ArchivoDrive(meta["id"], meta["name"], meta.get("mimeType", ""), meta.get("modifiedTime", ""), meta.get("md5Checksum", ""))
+
+
 def descargar(servicio, archivo: ArchivoDrive) -> bytes:
     from googleapiclient.http import MediaIoBaseDownload
 
+    if archivo.mime == MIME_FOLDER:
+        raise ErrorDrive(
+            f"«{archivo.nombre}» es una carpeta, no un archivo. En el secreto del maestro pega la URL de la hoja de cálculo "
+            "(la que empieza con docs.google.com/spreadsheets/d/…), no la de una carpeta."
+        )
+    if archivo.mime.startswith("application/vnd.google-apps.") and archivo.mime != MIME_SHEET:
+        tipo = archivo.mime.rsplit(".", 1)[-1]
+        raise ErrorDrive(f"«{archivo.nombre}» es un documento de Google de tipo «{tipo}», no una hoja de cálculo ni un Excel.")
     try:
         if archivo.mime == MIME_SHEET:
             req = servicio.files().export_media(fileId=archivo.id, mimeType=MIME_XLSX)
