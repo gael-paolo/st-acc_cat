@@ -147,7 +147,7 @@ catalogo.html
   - Para la intranet: cópialo a la carpeta del catálogo reemplazando el anterior.
   - Se abre con Edge, Chrome o Safari. No lo envíes por WhatsApp ni por correo:
     en los celulares puede no abrirse. Comparte el enlace de la intranet.
-  - El botón «Descargar PDF» de la página imprime lo que esté filtrado en ese momento.
+  - La página no genera PDF: los PDF se obtienen solo desde la app (carpeta pdf/ de este paquete).
 
 pdf/
   Catálogos en PDF listos para enviar a clientes por WhatsApp o correo.

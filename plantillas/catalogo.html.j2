@@ -66,7 +66,9 @@ main{max-width:1180px;margin:0 auto;padding:14px 16px 40px}
 .nombre{margin:0;font-size:.95rem;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
 .np{margin:0;font-size:.76rem;color:var(--texto2);overflow-wrap:anywhere}
 .pie{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:6px}
+.pbox{display:flex;flex-direction:column;line-height:1.2}
 .precio{font-weight:700;color:var(--primario);font-size:1.05rem}
+.bs{font-size:.78rem;color:var(--texto2)}
 .badge{font-size:.74rem;font-weight:650;border-radius:999px;padding:2px 9px;white-space:nowrap}
 .b-disponible{background:var(--ok-bg);color:var(--ok-tx)}
 .b-pocas{background:var(--poco-bg);color:var(--poco-tx)}
@@ -89,22 +91,10 @@ dialog::backdrop{background:rgba(10,30,36,.55)}
 .datos{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0;font-size:.92rem;align-content:start}
 .datos dt{color:var(--texto2)}
 .datos dd{margin:0;overflow-wrap:anywhere}
-.d-precio{font-size:1.5rem;font-weight:750;color:var(--primario);margin:0 0 6px}
+.d-precio{font-size:1.5rem;font-weight:750;color:var(--primario);margin:0 0 2px}
+.d-bs{margin:0 0 8px;color:var(--texto2);font-size:.95rem}
 .d-desc{grid-column:1/-1;margin:0;color:var(--texto2)}
-.solo-impresion{display:none}
-@media print{
-  @page{margin:12mm}
-  body{background:#fff;font-size:11pt}
-  .top{background:#fff;color:var(--texto);padding:0 0 8px;border-bottom:2px solid var(--primario)}
-  .top p{color:var(--texto2)}
-  .acciones,.barra,dialog{display:none!important}
-  .solo-impresion{display:block;margin:8px 0 0;font-size:.95rem}
-  main{padding:8px 0}
-  .grid{grid-template-columns:repeat(3,1fr);gap:8px}
-  .card{break-inside:avoid;box-shadow:none;border-radius:8px}
-  .card:hover{transform:none;box-shadow:none}
-  footer{padding:8px 0}
-}
+@media print{body *{display:none!important}body::before{content:"Para obtener este catálogo en PDF, solicítalo al área comercial.";display:block!important;font:16px system-ui,sans-serif;padding:24px;color:#1B1F23}}
 </style>
 </head>
 <body>
@@ -113,11 +103,9 @@ dialog::backdrop{background:rgba(10,30,36,.55)}
     <div>
       <h1>{{ titulo }}</h1>
       <p>Stock al {{ fecha_stock }} · Precios en USD</p>
-      <p class="solo-impresion" id="resumenFiltro"></p>
     </div>
     <div class="acciones">
       <button class="btn" id="btnCompartir" type="button">Copiar enlace</button>
-      <button class="btn solido" id="btnPdf" type="button">Descargar PDF</button>
     </div>
   </div>
 </header>
@@ -160,7 +148,7 @@ dialog::backdrop{background:rgba(10,30,36,.55)}
   <div class="d-cab"><h2 id="dTitulo"></h2><button class="cerrar" id="dCerrar" type="button" aria-label="Cerrar">×</button></div>
   <div class="d-cuerpo">
     <div><div class="d-foto" id="dFoto"></div><div class="mini" id="dMini"></div></div>
-    <div><p class="d-precio" id="dPrecio"></p><dl class="datos" id="dDatos"></dl></div>
+    <div><p class="d-precio" id="dPrecio"></p><p class="d-bs" id="dBs"></p><dl class="datos" id="dDatos"></dl></div>
     <p class="d-desc" id="dDesc"></p>
   </div>
 </dialog>
@@ -179,13 +167,16 @@ var TIPO_DEF = HAY_ACC ? "Accesorio" : "";
 var S = {q:"", modelo:"", tipo:TIPO_DEF, cat:"", orden:"orden", disp:false};
 
 function norm(t){ return (t||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""); }
-function precio(v){
-  if(v==null) return "Consultar";
-  var n = Number(v), ent = Math.abs(n-Math.round(n))<0.005;
-  return "USD " + n.toLocaleString("es-BO",{minimumFractionDigits:ent?0:2, maximumFractionDigits:2});
+function numEs(n){
+  n = Number(n); var ent = Math.abs(n-Math.round(n))<0.005;
+  var p = Math.abs(n).toFixed(ent?0:2).split(".");
+  p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return (n<0?"-":"") + p.join(",");
 }
+function precio(v){ return v==null ? "Consultar" : "USD " + numEs(v); }
 function el(tag, cls, txt){ var e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; }
 function url(stem, t){ var i=IMG[stem]; if(!i) return ""; return i[t] || i.t || ""; }
+function precioBs(v){ return "Bs " + numEs(v); }
 function etiquetaEstado(p){ if(p.estado==="servicio") return ""; return ESTADO[p.estado] + (p.estado!=="agotado" && p.stock!=null ? " · "+p.stock : ""); }
 function nombreModelo(c){ return MODELOS[c] ? c+" · "+MODELOS[c] : c; }
 
@@ -279,7 +270,9 @@ function tarjeta(p){
   if(p.modelos.length){ var ms = el("div","mods"); p.modelos.forEach(function(m){ ms.appendChild(el("span","mod",m)); }); b.appendChild(ms); }
   b.appendChild(el("h3","nombre",p.nombre));
   if(p.np) b.appendChild(el("p","np","Cód. "+p.np));
-  var pie = el("div","pie"); pie.appendChild(el("span","precio",precio(p.precio)));
+  var pie = el("div","pie"); var pb = el("div","pbox"); pb.appendChild(el("span","precio",precio(p.precio)));
+  if(p.precio_bs!=null) pb.appendChild(el("span","bs",precioBs(p.precio_bs)));
+  pie.appendChild(pb);
   var et = etiquetaEstado(p); if(et) pie.appendChild(el("span","badge b-"+p.estado, et));
   b.appendChild(pie); c.appendChild(b);
   c.addEventListener("click", function(){ abrir(p); });
@@ -293,9 +286,6 @@ function actualizar(){
   document.getElementById("conteo").textContent = lista.length+" de "+P.length+" productos";
   document.getElementById("vacio").hidden = lista.length>0;
   pintarControles(); escribirHash();
-  var partes = [S.modelo?"Modelo: "+nombreModelo(S.modelo):"Todos los modelos", S.tipo?S.tipo:"Todos los tipos", S.cat?S.cat:"Todas las categorías"];
-  if(S.q) partes.push("Búsqueda: «"+S.q+"»"); if(S.disp) partes.push("Solo con stock");
-  document.getElementById("resumenFiltro").textContent = partes.join(" · ")+" — "+lista.length+" productos";
 }
 
 /* ---------- detalle ---------- */
@@ -304,6 +294,7 @@ function fila(dl, k, v){ if(v==null||v==="") return; dl.appendChild(el("dt",null
 function abrir(p){
   document.getElementById("dTitulo").textContent = p.nombre;
   document.getElementById("dPrecio").textContent = precio(p.precio);
+  var dbs = document.getElementById("dBs"); dbs.textContent = p.precio_bs!=null ? precioBs(p.precio_bs) : ""; dbs.hidden = p.precio_bs==null;
   var dl = document.getElementById("dDatos"); dl.textContent="";
   fila(dl,"Código",p.id); fila(dl,"Código de sistema",p.np);
   fila(dl,"Modelos",p.modelos.map(nombreModelo).join(", ")); fila(dl,"Categoría",p.categoria); fila(dl,"Tipo",p.tipo);
@@ -343,14 +334,6 @@ document.getElementById("btnCompartir").addEventListener("click", function(){
   function listo(){ var t=b.textContent; b.textContent="Enlace copiado"; setTimeout(function(){ b.textContent=t; }, 1800); }
   if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(u).then(listo, function(){ window.prompt("Copia este enlace:", u); }); }
   else { window.prompt("Copia este enlace:", u); }
-});
-document.getElementById("btnPdf").addEventListener("click", function(){
-  var b = this, t = b.textContent; b.textContent = "Preparando…"; b.disabled = true;
-  var imgs = Array.prototype.slice.call(document.querySelectorAll("#grid img"));
-  imgs.forEach(function(i){ i.loading="eager"; });
-  var esperas = imgs.map(function(i){ return i.complete ? Promise.resolve() : new Promise(function(r){ i.addEventListener("load",r); i.addEventListener("error",r); }); });
-  var tope = new Promise(function(r){ setTimeout(r, 8000); });
-  Promise.race([Promise.all(esperas), tope]).then(function(){ b.textContent=t; b.disabled=false; window.print(); });
 });
 
 leerHash(); actualizar();

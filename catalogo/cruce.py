@@ -41,6 +41,17 @@ def _sin_repetidas(stems: list[str], listado: dict[str, ArchivoImagen]) -> list[
     return out
 
 
+def pvp_de_producto(codigos: list[str], stock: pd.DataFrame) -> float | None:
+    """PVP en Bs del reporte: el del primer código del producto que lo tenga (mayor que cero)."""
+    for c in codigos:
+        k = clave(c)
+        if k in stock.index:
+            v = stock.at[k, "pvp_bs"]
+            if pd.notna(v) and float(v) > 0:
+                return float(v)
+    return None
+
+
 def construir_catalogo(
     maestro: Maestro,
     stock: pd.DataFrame,
@@ -55,8 +66,9 @@ def construir_catalogo(
             total, _ = stock_de_producto(r["codigos_sistema"], stock)
             cantidad = numero_entero_si_corresponde(total)
             estado = estado_de(total, umbral)
+            pvp_bs = pvp_de_producto(r["codigos_sistema"], stock)
         else:
-            cantidad, estado = None, SERVICIO
+            cantidad, estado, pvp_bs = None, SERVICIO, None
         productos.append(
             {
                 "id": r["codigo"],
@@ -66,6 +78,7 @@ def construir_catalogo(
                 "categoria": r["categoria"],
                 "modelos": list(r["modelos"]),
                 "precio": float(r["precio_usd"]) if pd.notna(r["precio_usd"]) else None,
+                "precio_bs": pvp_bs,
                 "np": " / ".join(r["codigos_sistema"]),
                 "stock": cantidad,
                 "estado": estado,

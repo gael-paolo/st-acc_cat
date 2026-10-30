@@ -52,16 +52,20 @@ def _t(texto: object) -> str:
     return str(texto).encode("cp1252", "replace").decode("cp1252")
 
 
-def _precio(v) -> str:
-    if v is None:
-        return "Consultar"
+def _numero_es(v) -> str:
+    """1234.5 -> '1.234,50'; 100 -> '100' (punto para los miles y coma para los decimales; igual que el HTML)."""
     n = float(v)
     ent = abs(n - round(n)) < 0.005
     s = f"{abs(n):,.0f}" if ent else f"{abs(n):,.2f}"
-    if abs(n) < 10000:
-        s = s.replace(",", "")
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return "USD " + s
+    return ("-" if n < 0 else "") + s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _precio(v) -> str:
+    return "Consultar" if v is None else "USD " + _numero_es(v)
+
+
+def _bs(v) -> str:
+    return "Bs " + _numero_es(v)
 
 
 def _cortar(texto: str, fuente: str, tam: float, ancho: float) -> str:
@@ -209,10 +213,15 @@ class GeneradorPDF:
                 c.setFillColor(TEXTO2)
                 c.setFont("Helvetica", 7)
                 c.drawString(x + 8, ty - 1, _cortar("Cód. " + p["np"], "Helvetica", 7, CW - 16))
-            by = ytop - ROW_H + 11
+            tiene_bs = p.get("precio_bs") is not None
+            by = ytop - ROW_H + (21 if tiene_bs else 11)
             c.setFillColor(PRIMARIO)
             c.setFont("Helvetica-Bold", 12)
             c.drawString(x + 8, by, _precio(p["precio"]))
+            if tiene_bs:
+                c.setFillColor(TEXTO2)
+                c.setFont("Helvetica", 7.5)
+                c.drawString(x + 8, by - 11, _bs(p["precio_bs"]))
             if p["estado"] in ETIQUETA:
                 etq = ETIQUETA[p["estado"]]
                 if p["estado"] != "agotado" and p["stock"] is not None:
